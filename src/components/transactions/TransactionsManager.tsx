@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import type { Transaction, Asset, TxType } from '../../types';
 import { genId, todayDDMMYYYY, getIndianFY, fmtINR } from '../../utils';
+import ZerodhaImporter from './ZerodhaImporter';
 
 interface Props {
   transactions: Transaction[];
@@ -29,6 +30,7 @@ export default function TransactionsManager({ transactions, assets, onChange, on
   const [errors, setErrors] = useState<string[]>([]);
   const [filter, setFilter] = useState('');
   const [showCharges, setShowCharges] = useState(false);
+  const [showImporter, setShowImporter] = useState(false);
 
   const set = (k: keyof Omit<Transaction, 'id'>, v: string | number) => {
     setForm(f => {
@@ -99,12 +101,21 @@ export default function TransactionsManager({ transactions, assets, onChange, on
           <h1 className="page-title">Transactions</h1>
           <p className="page-sub">Enter your complete buy/sell history for capital gains calculation</p>
         </div>
-        {transactions.length > 0 && (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <span className="badge badge-green">{stats.buys} buys</span>
-            <span className="badge badge-red">{stats.sells} sells</span>
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          {transactions.length > 0 && (
+            <>
+              <span className="badge badge-green">{stats.buys} buys</span>
+              <span className="badge badge-red">{stats.sells} sells</span>
+            </>
+          )}
+          <button
+            className="btn btn-outline btn-sm"
+            onClick={() => setShowImporter(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: 5 }}
+          >
+            <span>📂</span> Import Zerodha CSV
+          </button>
+        </div>
       </div>
 
       {/* Form */}
@@ -319,6 +330,17 @@ export default function TransactionsManager({ transactions, assets, onChange, on
             </table>
           </div>
         </div>
+      )}
+      {/* Zerodha Importer Modal */}
+      {showImporter && (
+        <ZerodhaImporter
+          existingAssets={assets}
+          existingTransactions={transactions}
+          onImport={(newAssets, newTxs) => {
+            onChange(newTxs);
+          }}
+          onClose={() => setShowImporter(false)}
+        />
       )}
     </div>
   );

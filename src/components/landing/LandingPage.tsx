@@ -37,10 +37,10 @@ const FEATURES = [
 ];
 
 const STEPS = [
-  { n: '1', title: 'Add your assets', desc: 'List your stocks and mutual funds' },
-  { n: '2', title: 'Enter transactions', desc: 'Your buy/sell history with dates and prices' },
-  { n: '3', title: 'Click calculate', desc: 'We fetch live prices and run the engine' },
-  { n: '4', title: 'Get your report', desc: 'LTCG, STCG, tax estimate, CSV for CA' },
+  { n: '1', title: 'Add your assets',      desc: 'List your stocks and mutual funds' },
+  { n: '2', title: 'Enter transactions',   desc: 'Your buy/sell history with dates and prices' },
+  { n: '3', title: 'Click calculate',      desc: 'We fetch live prices and run the engine' },
+  { n: '4', title: 'Get your report',      desc: 'LTCG, STCG, tax estimate, CSV for CA' },
 ];
 
 export default function LandingPage({ onGetStarted, onLoadDemo }: Props) {
@@ -112,8 +112,8 @@ export default function LandingPage({ onGetStarted, onLoadDemo }: Props) {
             style={{ minWidth: 180 }}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
             </svg>
             Start for Free
           </button>
@@ -123,7 +123,7 @@ export default function LandingPage({ onGetStarted, onLoadDemo }: Props) {
             style={{ minWidth: 180 }}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polygon points="5 3 19 12 5 21 5 3" />
+              <polygon points="5 3 19 12 5 21 5 3"/>
             </svg>
             Try Demo — See it Live
           </button>
@@ -279,8 +279,8 @@ export default function LandingPage({ onGetStarted, onLoadDemo }: Props) {
 
 // ── Email signup component (inline) ──────────────────────────────────────────
 function EmailSignup() {
-  const FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSezILUXTVXAOa95eyKI1_GYQgY3zZo4Qkxt8IAhHne5dHXVhQ/formResponse';
-  const ENTRY_ID = 'entry.1757308823';
+  const FORM_URL = 'https://docs.google.com/forms/d/e/YOUR_FORM_ID/formResponse';
+  const ENTRY_ID = 'entry.YOUR_ENTRY_ID';
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -292,7 +292,7 @@ function EmailSignup() {
     const data = new FormData();
     data.append(ENTRY_ID, email);
     fetch(FORM_URL, { method: 'POST', body: data, mode: 'no-cors' })
-      .catch(() => { });
+      .catch(() => {});
 
     form.reset();
     const btn = form.querySelector('button') as HTMLButtonElement;
