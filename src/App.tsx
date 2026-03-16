@@ -159,6 +159,10 @@ export default function App() {
             transactions={transactions} assets={assets}
             onChange={setTransactions} onRun={handleRun}
             running={state.status === 'running'} progress={progress}
+            onImport={(newAssets, newTxs) => {   // ← add this
+              setAssets(newAssets);
+              setTransactions(newTxs);
+            }}
           />
         )}
         {activeTab === 'results' && hasResult && <ResultsTable result={state.result!} />}

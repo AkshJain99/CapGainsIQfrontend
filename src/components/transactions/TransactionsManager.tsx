@@ -7,6 +7,7 @@ interface Props {
   transactions: Transaction[];
   assets: Asset[];
   onChange: (txs: Transaction[]) => void;
+  onImport:(assets: Asset[], txs: Transaction[]) => void;
   onRun: () => void;
   running: boolean;
   progress: string;
@@ -24,7 +25,7 @@ const calcCharges = (tx: Omit<Transaction, 'id'>) =>
   tx.brokerage + tx.gst + tx.stt + tx.sebi_tax +
   tx.exchange_charges + tx.stamp_duty + tx.other_charges + tx.ipft_charges;
 
-export default function TransactionsManager({ transactions, assets, onChange, onRun, running, progress }: Props) {
+export default function TransactionsManager({ transactions, assets, onChange, onImport, onRun, running, progress, }: Props) {
   const [form, setForm] = useState(BLANK());
   const [editId, setEditId] = useState<string | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
@@ -337,8 +338,7 @@ export default function TransactionsManager({ transactions, assets, onChange, on
           existingAssets={assets}
           existingTransactions={transactions}
           onImport={(newAssets, newTxs) => {
-            console.log(newAssets)
-            onChange(newTxs);
+            onImport(newAssets, newTxs);
           }}
           onClose={() => setShowImporter(false)}
         />
