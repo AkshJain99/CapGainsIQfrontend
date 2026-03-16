@@ -337,6 +337,7 @@ export default function TransactionsManager({ transactions, assets, onChange, on
           existingAssets={assets}
           existingTransactions={transactions}
           onImport={(newAssets, newTxs) => {
+            console.log(newAssets)
             onChange(newTxs);
           }}
           onClose={() => setShowImporter(false)}

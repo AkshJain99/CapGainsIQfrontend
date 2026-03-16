@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import { runCapGains, pollJob } from '../api/client';
-import type { RunPayload, RunState, CapGainsResult } from '../types';
+import type { RunPayload, RunState} from '../types';
 
 export function useCapGains() {
   const [state, setState] = useState<RunState>({
