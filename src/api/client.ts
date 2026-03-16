@@ -3,8 +3,10 @@ import type { RunPayload, CapGainsResult } from '../types';
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  public status: number;
+  constructor(status: number, message: string) {
     super(message);
+    this.status = status;
   }
 }
 
