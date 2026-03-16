@@ -1,32 +1,32 @@
 import type { ActiveTab } from '../../types';
 
 interface Props {
-  activeTab: ActiveTab;
-  onTabChange: (t: ActiveTab) => void;
-  hasResult: boolean;
-  onReset: () => void;
+  activeTab:      ActiveTab;
+  onTabChange:    (t: ActiveTab) => void;
+  hasResult:      boolean;
+  onReset:        () => void;
+  onBackToHome:   () => void;
 }
 
 const TABS: { id: ActiveTab; label: string; icon: string; needsResult?: boolean }[] = [
-  { id: 'assets',       label: 'Assets',        icon: '◈' },
-  { id: 'transactions', label: 'Transactions',   icon: '⇄' },
-  { id: 'results',      label: 'Capital Gains',  icon: '◎', needsResult: true },
-  { id: 'fy',           label: 'FY Breakdown',   icon: '⊞', needsResult: true },
-  { id: 'tax',          label: 'Tax Estimate',   icon: '₹', needsResult: true },
+  { id: 'assets',       label: 'Assets',       icon: '◈' },
+  { id: 'transactions', label: 'Transactions',  icon: '⇄' },
+  { id: 'results',      label: 'Capital Gains', icon: '◎', needsResult: true },
+  { id: 'fy',           label: 'FY Breakdown',  icon: '⊞', needsResult: true },
+  { id: 'tax',          label: 'Tax Estimate',  icon: '₹', needsResult: true },
 ];
 
-export default function Topbar({ activeTab, onTabChange, hasResult, onReset }: Props) {
+export default function Topbar({ activeTab, onTabChange, hasResult, onReset, onBackToHome }: Props) {
   return (
     <header className="topbar">
       <div className="topbar-inner">
-        {/* Brand row */}
         <div className="topbar-brand-row">
-          <div className="brand">
+          {/* Brand — clicking goes back to home */}
+          <div className="brand" onClick={onBackToHome}
+            style={{ cursor: 'pointer' }}>
             <div className="brand-icon">₹</div>
             <div>
-              <div className="brand-name">
-                CapGains<span>IQ</span>
-              </div>
+              <div className="brand-name">CapGains<span>IQ</span></div>
               <div className="brand-tag">Indian Capital Gains Calculator · FIFO · NSE/BSE</div>
             </div>
           </div>
