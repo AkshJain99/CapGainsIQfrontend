@@ -1,4 +1,5 @@
 import type { CapGainsResult } from '../../types';
+import CarryForward from './CarryForward';
 import { fmtINR, exportToCSV, gainColor } from '../../utils';
 
 interface Props { result: CapGainsResult }
@@ -130,6 +131,8 @@ export default function FYBreakdown({ result }: Props) {
         LTCG losses offset only LTCG gains. STCG losses offset both STCG and LTCG.
         Share this breakdown with your CA for Schedule CG in ITR-2/3.
       </div>
+
+      <CarryForward result={result} />
     </div>
   );
 }
