@@ -1,5 +1,7 @@
 import type { CapGainsResult } from '../../types';
 import { fmtINR, fmtPct, fmtNum, exportToCSV, gainColor } from '../../utils';
+import TaxHarvesting from './TaxHarvesting';
+import PortfolioHealth from './PortfolioHealth';
 
 interface Props { result: CapGainsResult }
 
@@ -99,6 +101,13 @@ export default function ResultsTable({ result }: Props) {
           </table>
         </div>
       </div>
+
+      {/* Tax Harvesting */}
+      <TaxHarvesting result={result} />
+
+      {/* Portfolio Health */}
+      <PortfolioHealth result={result} />
+
     </div>
   );
 }
