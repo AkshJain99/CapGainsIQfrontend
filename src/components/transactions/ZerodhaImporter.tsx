@@ -35,12 +35,35 @@ function detectFormat(headers: string[]): CsvFormat {
 // ── Parse date → DD-MM-YYYY ────────────────────────────────────────────────
 function toAppDate(raw: string): string {
   const s = (raw || '').trim();
-  // YYYY-MM-DD or YYYY-MM-DD HH:MM:SS
+
+  // YYYY-MM-DD or YYYY-MM-DD HH:MM:SS  (ISO format)
   const m1 = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (m1) return `${m1[3]}-${m1[2]}-${m1[1]}`;
-  // DD-MM-YYYY or DD/MM/YYYY
+
+  // DD-MM-YYYY or DD/MM/YYYY  (Indian format - day first, day <= 12 ambiguous)
   const m2 = s.match(/^(\d{2})[-/](\d{2})[-/](\d{4})/);
-  if (m2) return `${m2[1]}-${m2[2]}-${m2[3]}`;
+  if (m2) {
+    const d = parseInt(m2[1]), mo = parseInt(m2[2]);
+    // If first part > 12 it MUST be DD-MM-YYYY
+    // If second part > 12 it MUST be MM-DD-YYYY
+    if (d > 12) return `${m2[1]}-${m2[2]}-${m2[3]}`;  // DD-MM-YYYY
+    if (mo > 12) return `${m2[2]}-${m2[1]}-${m2[3]}`;  // MM-DD-YYYY → swap
+    // Both <= 12: assume DD-MM-YYYY (Indian standard)
+    return `${m2[1]}-${m2[2]}-${m2[3]}`;
+  }
+
+  // MM-DD-YYYY explicit (month > 12 impossible, detect by context)
+  // Handles dates like '11-21-2024' where day part (21) > 12
+  const m3 = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})/);
+  if (m3) {
+    const p1 = parseInt(m3[1]), p2 = parseInt(m3[2]);
+    if (p2 > 12 && p1 <= 12) {
+      // MM-DD-YYYY → convert to DD-MM-YYYY
+      return `${m3[2].padStart(2,'0')}-${m3[1].padStart(2,'0')}-${m3[3]}`;
+    }
+    return `${m3[1].padStart(2,'0')}-${m3[2].padStart(2,'0')}-${m3[3]}`;
+  }
+
   return s;
 }
 
@@ -95,19 +118,24 @@ function parseTradebook(rows: string[][], headers: string[]): ParseResult {
       return;
     }
 
-    const date   = toAppDate(dateRaw);
-    const trType = typeRaw.startsWith('b') ? 'Buy' : 'Sell';
-    const ticker = `${symbol}.${exch === 'BSE' ? 'BO' : 'NS'}`;
+    const date      = toAppDate(dateRaw);
+    const trType    = typeRaw.startsWith('b') ? 'Buy' : 'Sell';
+    const detected  = detectAssetType(symbol);
+    // For BSE stocks override ticker suffix
+    const ticker    = detected.source === 'YF' && exch === 'BSE'
+      ? `${detected.symbol}.BO`
+      : detected.ticker;
 
-    if (!seenAssets.has(symbol)) {
-      seenAssets.set(symbol, {
-        id: genId(), asset_name: symbol,
-        asset_class: 'EQUITY', ticker, source: 'YF',
+    if (!seenAssets.has(detected.symbol)) {
+      seenAssets.set(detected.symbol, {
+        id: genId(), asset_name: detected.symbol,
+        asset_class: detected.assetClass,
+        ticker, source: detected.source,
       });
     }
 
     transactions.push({
-      id: genId(), asset_name: symbol, date,
+      id: genId(), asset_name: detected.symbol, date,
       tr_type: trType as 'Buy' | 'Sell',
       rate: price, quantity: qty,
       amount: parseFloat((qty * price).toFixed(2)),
@@ -168,19 +196,23 @@ function parseTaxPnL(rows: string[][], headers: string[]): ParseResult {
     const ipft  = num(row, iIPFT);
     const total = num(row, iTotal) || parseFloat((brok + stt + exchC + sebi + stamp + gst + ipft).toFixed(2));
 
-    const date   = toAppDate(dateRaw);
-    const trType = typeRaw.startsWith('b') ? 'Buy' : 'Sell';
-    const ticker = `${symbol}.${exch === 'BSE' ? 'BO' : 'NS'}`;
+    const date     = toAppDate(dateRaw);
+    const trType   = typeRaw.startsWith('b') ? 'Buy' : 'Sell';
+    const detected = detectAssetType(symbol);
+    const ticker   = detected.source === 'YF' && exch === 'BSE'
+      ? `${detected.symbol}.BO`
+      : detected.ticker;
 
-    if (!seenAssets.has(symbol)) {
-      seenAssets.set(symbol, {
-        id: genId(), asset_name: symbol,
-        asset_class: 'EQUITY', ticker, source: 'YF',
+    if (!seenAssets.has(detected.symbol)) {
+      seenAssets.set(detected.symbol, {
+        id: genId(), asset_name: detected.symbol,
+        asset_class: detected.assetClass,
+        ticker, source: detected.source,
       });
     }
 
     transactions.push({
-      id: genId(), asset_name: symbol, date,
+      id: genId(), asset_name: detected.symbol, date,
       tr_type: trType as 'Buy' | 'Sell',
       rate: price, quantity: qty,
       amount: parseFloat((qty * price).toFixed(2)),
@@ -208,6 +240,59 @@ function parseCSV(text: string): string[][] {
   });
 }
 
+// ── Detect if asset is a mutual fund ─────────────────────────────────────
+const MF_KEYWORDS = [
+  'fund', 'growth', 'direct plan', 'direct-plan', 'fof', 'fund of fund',
+  'index fund', 'liquid', 'gilt', 'debt', 'income fund', 'balanced',
+  'hybrid', 'arbitrage', 'overnight', 'dynamic bond', 'credit risk',
+  'banking and psu', 'corporate bond', 'money market', 'ultra short',
+  'low duration', 'short duration', 'medium duration', 'long duration',
+  'floater', 'saving fund', 'savings fund',
+];
+
+const DEBT_KEYWORDS = [
+  'gilt', 'debt', 'bond', 'liquid', 'overnight', 'money market',
+  'floating interest', 'floater', 'banking and psu', 'corporate bond',
+  'credit risk', 'dynamic bond', 'ultra short', 'low duration',
+  'short duration', 'medium duration', 'long duration',
+];
+
+function detectAssetType(name: string): {
+  assetClass: 'EQUITY' | 'DEBT' | 'MF';
+  source: 'YF' | 'MF';
+  ticker: string;
+  symbol: string;
+} {
+  const lower = name.toLowerCase();
+  const isMF  = MF_KEYWORDS.some(k => lower.includes(k));
+
+  if (isMF) {
+    const isDebt = DEBT_KEYWORDS.some(k => lower.includes(k));
+    return {
+      assetClass: isDebt ? 'DEBT' : 'MF',
+      source:     'MF',
+      ticker:     '',          // user must fill AMFI code manually
+      symbol:     name.toUpperCase().trim(),
+    };
+  }
+
+  // Stock — use short symbol with .NS
+  // Symbol is the raw short name from CSV (e.g. RELIANCE, ITC)
+  const symbol = name.toUpperCase().trim();
+  // Clean up common suffixes Zerodha adds
+  const cleanSymbol = symbol
+    .replace(/ LIMITED$/, '').replace(/ LTD$/, '')
+    .replace(/ CORPORATION LIMITED$/, '').replace(/ CORP$/, '')
+    .trim();
+
+  return {
+    assetClass: 'EQUITY',
+    source:     'YF',
+    ticker:     `${cleanSymbol}.NS`,
+    symbol:     cleanSymbol,
+  };
+}
+
 // ── Component ──────────────────────────────────────────────────────────────
 export default function ZerodhaImporter({ existingAssets, existingTransactions, onImport, onClose }: Props) {
   const [parsed,  setParsed]  = useState<ParseResult | null>(null);
@@ -223,27 +308,30 @@ export default function ZerodhaImporter({ existingAssets, existingTransactions, 
 
     const reader = new FileReader();
     reader.onload = ev => {
-      try {
-        const text = ev.target?.result as string;
-        const all  = parseCSV(text);
-        if (all.length < 2) throw new Error('CSV is empty or has no data rows.');
+      // Use setTimeout to yield to browser — prevents UI freeze on large CSVs
+      setTimeout(() => {
+        try {
+          const text = ev.target?.result as string;
+          const all  = parseCSV(text);
+          if (all.length < 2) throw new Error('CSV is empty or has no data rows.');
 
-        const headers = all[0];
-        const rows    = all.slice(1).filter(r => r.some(c => c));
-        const fmt     = detectFormat(headers);
+          const headers = all[0];
+          const rows    = all.slice(1).filter(r => r.some(c => c));
+          const fmt     = detectFormat(headers);
 
-        let result: ParseResult;
-        if (fmt === 'taxpnl')     result = parseTaxPnL(rows, headers);
-        else if (fmt === 'tradebook') result = parseTradebook(rows, headers);
-        else throw new Error('Unrecognised format. Upload a Zerodha Tradebook or Tax P&L CSV.');
+          let result: ParseResult;
+          if (fmt === 'taxpnl')         result = parseTaxPnL(rows, headers);
+          else if (fmt === 'tradebook') result = parseTradebook(rows, headers);
+          else throw new Error('Unrecognised format. Upload a Zerodha Tradebook or Tax P&L CSV.');
 
-        if (result.transactions.length === 0) throw new Error('No valid equity transactions found.');
-        setParsed(result);
-      } catch (err: any) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
+          if (result.transactions.length === 0) throw new Error('No valid equity transactions found.');
+          setParsed(result);
+        } catch (err: any) {
+          setError((err as Error).message);
+        } finally {
+          setLoading(false);
+        }
+      }, 50); // 50ms lets React render the loading state first
     };
     reader.readAsText(file);
   };
@@ -320,7 +408,16 @@ export default function ZerodhaImporter({ existingAssets, existingTransactions, 
             >
               <div style={{ fontSize: 28, marginBottom: 6 }}>📂</div>
               <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--indigo-mid)' }}>
-                {loading ? 'Parsing CSV...' : 'Click to upload Zerodha CSV'}
+                {loading ? (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
+                  <span style={{
+                    display: 'inline-block', width: 16, height: 16, borderRadius: '50%',
+                    border: '2px solid var(--indigo-bdr)', borderTopColor: 'var(--indigo-mid)',
+                    animation: 'spin 0.8s linear infinite',
+                  }} />
+                  Parsing {'—'} please wait...
+                </span>
+              ) : 'Click to upload Zerodha CSV'}
               </div>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>
                 .csv files only
@@ -365,6 +462,28 @@ export default function ZerodhaImporter({ existingAssets, existingTransactions, 
                   color: '#92400e',
                 }}>
                   <strong>{parsed.warnings.length} rows skipped</strong> (F&O / invalid data — equity only imported)
+                </div>
+              )}
+
+              {/* MF detected notice */}
+              {parsed.assets.filter(a => a.source === 'MF').length > 0 && (
+                <div style={{
+                  background: '#eff6ff', border: '1px solid #bfdbfe',
+                  borderRadius: 8, padding: '10px 12px', marginBottom: 12, fontSize: 11,
+                  color: '#1e40af',
+                }}>
+                  <strong>
+                    {parsed.assets.filter(a => a.source === 'MF').length} mutual funds detected
+                  </strong>
+                  {' '}— ticker left blank. After import, go to Assets tab and add the
+                  AMFI scheme code for each fund to see live NAV and unrealised gains.{' '}
+                  <a
+                    href="https://www.amfiindia.com/net-asset-value"
+                    target="_blank" rel="noreferrer"
+                    style={{ color: '#2563eb', fontWeight: 700 }}
+                  >
+                    Find AMFI codes →
+                  </a>
                 </div>
               )}
 
