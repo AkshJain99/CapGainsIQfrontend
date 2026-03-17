@@ -25,7 +25,7 @@ function calcHealth(result: CapGainsResult) {
   // 2. LTCG exemption utilisation
   const fyData = result.fy_breakdown.find(f => f.financial_year === rule.fy);
   const currentLTCG = fyData?.r_ltcg ?? summary.r_ltcg;
-  const exemptionUsed = Math.min(currentLTCG, rule.ltcg_exemption);
+  // const exemptionUsed = Math.min(currentLTCG, rule.ltcg_exemption);
   const exemptionLeft = Math.max(0, rule.ltcg_exemption - currentLTCG);
   if (exemptionLeft > 50000) {
     checks.push({ label: 'LTCG Exemption Usage', status: 'warn', message: `${fmtINR(exemptionLeft)} of your ${fmtINR(rule.ltcg_exemption)} exemption is unused this FY. Consider harvesting gains.` });
