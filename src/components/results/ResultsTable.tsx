@@ -1,9 +1,121 @@
+import { useState } from 'react';
 import type { CapGainsResult } from '../../types';
 import { fmtINR, fmtPct, fmtNum, exportToCSV, gainColor } from '../../utils';
 import TaxHarvesting from './TaxHarvesting';
 import PortfolioHealth from './PortfolioHealth';
 
 interface Props { result: CapGainsResult }
+
+// ── Smart grouped warnings ────────────────────────────────────────────────
+function WarningsSummary({ warnings }: { warnings: string[] }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const priceWarnings    = warnings.filter(w => w.includes('Could not fetch live price'));
+  const unmatchedWarnings= warnings.filter(w => w.includes('unmatched sell units'));
+  const otherWarnings    = warnings.filter(w =>
+    !w.includes('Could not fetch live price') && !w.includes('unmatched sell units')
+  );
+
+  return (
+    <div style={{ marginBottom: 20 }}>
+
+      {/* Price fetch warnings — grouped */}
+      {priceWarnings.length > 0 && (
+        <div style={{
+          background: '#fffbeb', border: '1px solid #fde68a',
+          borderRadius: 10, padding: '14px 16px', marginBottom: 10,
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 13, color: '#92400e', marginBottom: 4 }}>
+                ⚠ Live prices unavailable for {priceWarnings.length} asset{priceWarnings.length > 1 ? 's' : ''}
+              </div>
+              <div style={{ fontSize: 12, color: '#92400e', lineHeight: 1.65, marginBottom: 8 }}>
+                Unrealised gains show ₹0 for these assets. This is usually because:
+                <br />• <strong>Mutual funds</strong> need an AMFI scheme code (not a Yahoo ticker)
+                <br />• <strong>Stocks</strong> imported from Zerodha have full legal names — Yahoo needs short NSE symbols
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <a
+                  href="https://www.mfapi.in"
+                  target="_blank" rel="noreferrer"
+                  style={{
+                    fontSize: 11, fontWeight: 700, color: '#1e40af',
+                    background: '#dbeafe', border: '1px solid #bfdbfe',
+                    borderRadius: 5, padding: '3px 10px', textDecoration: 'none',
+                  }}
+                >
+                  🏦 Find AMFI codes on mfapi.in →
+                </a>
+                <a
+                  href="https://finance.yahoo.com"
+                  target="_blank" rel="noreferrer"
+                  style={{
+                    fontSize: 11, fontWeight: 700, color: '#065f46',
+                    background: '#d1fae5', border: '1px solid #6ee7b7',
+                    borderRadius: 5, padding: '3px 10px', textDecoration: 'none',
+                  }}
+                >
+                  📈 Find stock tickers on Yahoo Finance →
+                </a>
+                <span style={{ fontSize: 11, color: '#92400e' }}>
+                  Then go to <strong>Assets tab</strong> → edit each asset → fix the ticker
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={() => setExpanded(e => !e)}
+              style={{
+                fontSize: 11, color: '#92400e', background: 'none',
+                border: '1px solid #fde68a', borderRadius: 5,
+                padding: '3px 8px', cursor: 'pointer', flexShrink: 0, marginLeft: 12,
+              }}
+            >
+              {expanded ? 'Hide' : `Show ${priceWarnings.length}`}
+            </button>
+          </div>
+          {expanded && (
+            <div style={{ marginTop: 10, maxHeight: 200, overflowY: 'auto' }}>
+              {priceWarnings.map((w, i) => (
+                <div key={i} style={{ fontSize: 11, color: '#92400e', padding: '2px 0', borderTop: i > 0 ? '1px solid #fde68a' : 'none' }}>
+                  {w.replace('Could not fetch live price for ', '').replace('. Unrealised gains will show ₹0.', '')}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Unmatched sell warnings — grouped */}
+      {unmatchedWarnings.length > 0 && (
+        <div style={{
+          background: '#fef2f2', border: '1px solid #fecaca',
+          borderRadius: 10, padding: '14px 16px', marginBottom: 10,
+        }}>
+          <div style={{ fontWeight: 700, fontSize: 13, color: '#dc2626', marginBottom: 4 }}>
+            ⚠ Incomplete transaction history ({unmatchedWarnings.length} unmatched sells)
+          </div>
+          <div style={{ fontSize: 12, color: '#991b1b', lineHeight: 1.65 }}>
+            Some sell transactions have no matching buy transactions. This usually means:
+            <br />• You imported only recent data — older buy transactions are missing
+            <br />• The buys happened before the date range you imported
+            <br /><br />
+            <strong>Fix:</strong> Import your complete transaction history from when you first started investing.
+            Capital gains on available transactions are still calculated correctly.
+          </div>
+        </div>
+      )}
+
+      {/* Other warnings */}
+      {otherWarnings.map((w, i) => (
+        <div key={i} className="alert alert-warn" style={{ marginBottom: 8, fontSize: 12 }}>
+          ⚠ {w}
+        </div>
+      ))}
+
+    </div>
+  );
+}
 
 export default function ResultsTable({ result }: Props) {
   const { capital_gains, summary, warnings } = result;
@@ -31,9 +143,7 @@ export default function ResultsTable({ result }: Props) {
         </button>
       </div>
 
-      {warnings.map((w, i) => (
-        <div key={i} className="alert alert-warn" style={{ marginBottom: 10 }}>⚠ {w}</div>
-      ))}
+      {warnings.length > 0 && <WarningsSummary warnings={warnings} />}
 
       {/* Summary stats */}
       <div className="stat-grid">
@@ -102,12 +212,11 @@ export default function ResultsTable({ result }: Props) {
         </div>
       </div>
 
-      {/* Tax Harvesting */}
+      {/* Tax Harvesting Suggestions */}
       <TaxHarvesting result={result} />
 
-      {/* Portfolio Health */}
+      {/* Portfolio Health Score */}
       <PortfolioHealth result={result} />
-
     </div>
   );
 }

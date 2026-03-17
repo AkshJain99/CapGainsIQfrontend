@@ -125,5 +125,5 @@ export interface RunState {
 
 // ─── UI types ─────────────────────────────────────────────────────────────────
 
-export type ActiveTab = 'assets' | 'transactions' | 'results' | 'tax' | 'fy';
+export type ActiveTab = 'assets' | 'transactions' | 'results' | 'tax' | 'fy' | 'harvest';
 export type Theme = 'dark' | 'light';
