@@ -33,39 +33,57 @@ function detectFormat(headers: string[]): CsvFormat {
   return 'unknown';
 }
 
-// ── Parse date → DD-MM-YYYY ────────────────────────────────────────────────
-function toAppDate(raw: string): string {
+// ── Detect date format from ALL dates in the file ─────────────────────────
+// Looks at every date and finds one where first or second part > 12
+// That unambiguously tells us the format for the whole file.
+// This works for ANY broker — Zerodha, Groww, Upstox, ICICI etc.
+function detectDateFormat(allRows: string[][], dateColIdx: number): 'DMY' | 'MDY' | 'YMD' | 'unknown' {
+  if (dateColIdx < 0) return 'unknown';
+
+  for (const row of allRows) {
+    const raw = (row[dateColIdx] || '').trim();
+
+    // ISO: YYYY-MM-DD — unambiguous
+    if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return 'YMD';
+
+    const m = raw.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+    if (!m) continue;
+
+    const p1 = parseInt(m[1]), p2 = parseInt(m[2]);
+    if (p1 > 12) return 'DMY';   // first part > 12 → must be day → DD-MM-YYYY
+    if (p2 > 12) return 'MDY';   // second part > 12 → must be day → MM-DD-YYYY
+    // both ≤ 12 → ambiguous, keep looking
+  }
+
+  // All ambiguous — Zerodha uses MM-DD-YYYY (American format) by default
+  // This is the safest fallback for Zerodha Tax P&L and Tradebook CSVs
+  return 'MDY';
+}
+
+// ── Parse a single date string given a known format ────────────────────────
+function parseDateWithFormat(raw: string, fmt: 'DMY' | 'MDY' | 'YMD' | 'unknown'): string {
   const s = (raw || '').trim();
 
-  // YYYY-MM-DD or YYYY-MM-DD HH:MM:SS  (ISO format)
-  const m1 = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (m1) return `${m1[3]}-${m1[2]}-${m1[1]}`;
+  // ISO YYYY-MM-DD
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[3]}-${iso[2]}-${iso[1]}`;
 
-  // DD-MM-YYYY or DD/MM/YYYY  (Indian format - day first, day <= 12 ambiguous)
-  const m2 = s.match(/^(\d{2})[-/](\d{2})[-/](\d{4})/);
-  if (m2) {
-    const d = parseInt(m2[1]), mo = parseInt(m2[2]);
-    // If first part > 12 it MUST be DD-MM-YYYY
-    // If second part > 12 it MUST be MM-DD-YYYY
-    if (d > 12) return `${m2[1]}-${m2[2]}-${m2[3]}`;  // DD-MM-YYYY
-    if (mo > 12) return `${m2[2]}-${m2[1]}-${m2[3]}`;  // MM-DD-YYYY → swap
-    // Both <= 12: assume DD-MM-YYYY (Indian standard)
-    return `${m2[1]}-${m2[2]}-${m2[3]}`;
-  }
+  const m = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  if (!m) return s;
 
-  // MM-DD-YYYY explicit (month > 12 impossible, detect by context)
-  // Handles dates like '11-21-2024' where day part (21) > 12
-  const m3 = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})/);
-  if (m3) {
-    const p1 = parseInt(m3[1]), p2 = parseInt(m3[2]);
-    if (p2 > 12 && p1 <= 12) {
-      // MM-DD-YYYY → convert to DD-MM-YYYY
-      return `${m3[2].padStart(2,'0')}-${m3[1].padStart(2,'0')}-${m3[3]}`;
-    }
-    return `${m3[1].padStart(2,'0')}-${m3[2].padStart(2,'0')}-${m3[3]}`;
-  }
+  const p1 = m[1].padStart(2, '0');
+  const p2 = m[2].padStart(2, '0');
+  const yr = m[3];
 
-  return s;
+  if (fmt === 'DMY') return `${p1}-${p2}-${yr}`;   // DD-MM-YYYY → keep
+  if (fmt === 'MDY') return `${p2}-${p1}-${yr}`;   // MM-DD-YYYY → swap
+  if (fmt === 'YMD') return `${p2}-${p1}-${yr}`;   // already handled above
+
+  // unknown: guess by value
+  const n1 = parseInt(m[1]), n2 = parseInt(m[2]);
+  if (n1 > 12) return `${p1}-${p2}-${yr}`;   // p1 is day
+  if (n2 > 12) return `${p2}-${p1}-${yr}`;   // p2 is day
+  return `${p2}-${p1}-${yr}`;                 // default MDY (Zerodha)
 }
 
 // ── Safely get column value ────────────────────────────────────────────────
@@ -73,8 +91,12 @@ function col(row: string[], idx: number): string {
   return idx >= 0 && idx < row.length ? (row[idx] || '').trim() : '';
 }
 
+// ── Parse number — handles spaces, commas (e.g. "1 234.47" or "27,540") ──
 function num(row: string[], idx: number): number {
-  return parseFloat(col(row, idx).replace(/,/g, '')) || 0;
+  const raw = col(row, idx);
+  // Remove spaces and commas — both used by different brokers for thousands sep
+  const cleaned = raw.replace(/[\s,]/g, '');
+  return parseFloat(cleaned) || 0;
 }
 
 function findCol(headers: string[], ...names: string[]): number {
@@ -96,6 +118,9 @@ function parseTradebook(rows: string[][], headers: string[]): ParseResult {
   const iPrice= findCol(headers, 'price', 'tradeprice', 'rate');
   const iExch = findCol(headers, 'exchange', 'exch');
   const iSeg  = findCol(headers, 'segment', 'seg');
+
+  // Auto-detect date format from the whole file
+  const dateFmt = detectDateFormat(rows, iDate);
 
   const warnings: string[]         = [];
   const seenAssets = new Map<string, Asset>();
@@ -119,7 +144,7 @@ function parseTradebook(rows: string[][], headers: string[]): ParseResult {
       return;
     }
 
-    const date      = toAppDate(dateRaw);
+    const date      = parseDateWithFormat(dateRaw, dateFmt);
     const trType    = typeRaw.startsWith('b') ? 'Buy' : 'Sell';
     const detected  = detectAssetType(symbol);
     // For BSE stocks override ticker suffix
@@ -155,6 +180,9 @@ function parseTaxPnL(rows: string[][], headers: string[]): ParseResult {
   const iDate  = findCol(headers, 'trade_date', 'tradedate', 'date');
   const iType  = findCol(headers, 'trade_type', 'tradetype', 'buysell');
   const iQty   = findCol(headers, 'quantity', 'qty');
+
+  // Auto-detect date format from the whole file
+  const dateFmt = detectDateFormat(rows, iDate);
   const iPrice = findCol(headers, 'price', 'rate', 'tradeprice');
   const iBrok  = findCol(headers, 'brokerage');
   const iSTT   = findCol(headers, 'stt', 'securities transaction tax');
@@ -197,7 +225,7 @@ function parseTaxPnL(rows: string[][], headers: string[]): ParseResult {
     const ipft  = num(row, iIPFT);
     const total = num(row, iTotal) || parseFloat((brok + stt + exchC + sebi + stamp + gst + ipft).toFixed(2));
 
-    const date     = toAppDate(dateRaw);
+    const date     = parseDateWithFormat(dateRaw, dateFmt);
     const trType   = typeRaw.startsWith('b') ? 'Buy' : 'Sell';
     const detected = detectAssetType(symbol);
     const ticker   = detected.source === 'YF' && exch === 'BSE'
@@ -294,6 +322,145 @@ function detectAssetType(name: string): {
   };
 }
 
+// ── CapGainsIQ Template format detection ──────────────────────────────────
+function isTemplateFormat(headers: string[]): boolean {
+  const h = headers.map(x => x.toLowerCase().trim().replace(/[\s_-]+/g, ''));
+  return h.includes('assetname') && h.includes('date') && h.includes('trtype');
+}
+
+// ── Parse CapGainsIQ own template CSV ─────────────────────────────────────
+function parseTemplate(rows: string[][], headers: string[]): ParseResult {
+  const iName  = findCol(headers, 'asset_name', 'assetname', 'name');
+  const iDate  = findCol(headers, 'date', 'trade_date');
+  const iType  = findCol(headers, 'tr_type', 'trtype', 'type', 'trade_type');
+  const iRate  = findCol(headers, 'rate', 'price');
+  const iQty   = findCol(headers, 'quantity', 'qty');
+  const iBrok  = findCol(headers, 'brokerage');
+  const iGST   = findCol(headers, 'gst');
+  const iSTT   = findCol(headers, 'stt');
+  const iSEBI  = findCol(headers, 'sebi_tax', 'sebitax', 'sebi');
+  const iExchC = findCol(headers, 'exchange_charges', 'exchcharges');
+  const iStamp = findCol(headers, 'stamp_duty', 'stampduty');
+  const iOther = findCol(headers, 'other_charges', 'othercharges');
+  const iIPFT  = findCol(headers, 'ipft_charges', 'ipft');
+  const iTotal = findCol(headers, 'total_charges', 'totalcharges');
+
+  // Template uses DD-MM-YYYY — explicitly DMY
+  const dateFmt = detectDateFormat(rows, iDate) === 'unknown' ? 'DMY' : detectDateFormat(rows, iDate);
+
+  const warnings: string[]          = [];
+  const seenAssets = new Map<string, Asset>();
+  const transactions: Transaction[]  = [];
+
+  rows.forEach((row, i) => {
+    const assetName = col(row, iName).toUpperCase().trim();
+    const dateRaw   = col(row, iDate);
+    const typeRaw   = col(row, iType).toLowerCase();
+    const rate      = num(row, iRate);
+    const qty       = num(row, iQty);
+
+    if (!assetName || !dateRaw) return;
+    if (rate <= 0 || qty <= 0) {
+      warnings.push(`Row ${i + 2}: Skipped ${assetName} — rate=${rate} qty=${qty} must be > 0`);
+      return;
+    }
+
+    const date   = parseDateWithFormat(dateRaw, dateFmt);
+    const trType = typeRaw.startsWith('b') ? 'Buy' : 'Sell';
+    const brok   = num(row, iBrok);
+    const gst    = num(row, iGST);
+    const stt    = num(row, iSTT);
+    const sebi   = num(row, iSEBI);
+    const exchC  = num(row, iExchC);
+    const stamp  = num(row, iStamp);
+    const other  = num(row, iOther);
+    const ipft   = num(row, iIPFT);
+    const total  = num(row, iTotal) || parseFloat((brok+gst+stt+sebi+exchC+stamp+other+ipft).toFixed(2));
+
+    // For template imports — user must have already set up assets manually
+    // We create a placeholder asset if not seen, source = YF by default
+    if (!seenAssets.has(assetName)) {
+      const detected = detectAssetType(assetName);
+      seenAssets.set(assetName, {
+        id: genId(), asset_name: assetName,
+        asset_class: detected.assetClass,
+        ticker: detected.ticker,
+        source: detected.source,
+      });
+    }
+
+    transactions.push({
+      id: genId(), asset_name: assetName, date,
+      tr_type: trType as 'Buy' | 'Sell',
+      rate, quantity: qty,
+      amount: parseFloat((qty * rate).toFixed(2)),
+      brokerage: brok, gst, stt, sebi_tax: sebi,
+      exchange_charges: exchC, stamp_duty: stamp,
+      other_charges: other, ipft_charges: ipft, total_charges: total,
+    });
+  });
+
+  return {
+    assets: [...seenAssets.values()],
+    transactions,
+    warnings,
+    format: 'CapGainsIQ Template',
+    rows: transactions.length,
+  };
+}
+
+// ── Download blank transaction template ───────────────────────────────────
+function downloadTemplate() {
+  const headers = [
+    'asset_name', 'date', 'tr_type', 'rate', 'quantity',
+    'brokerage', 'gst', 'stt', 'sebi_tax', 'exchange_charges',
+    'stamp_duty', 'other_charges', 'ipft_charges', 'total_charges',
+  ].join(',');
+
+  const example = [
+    'RELIANCE',       // asset_name — must match exactly what you added in Assets tab
+    '01-09-2022',     // date — DD-MM-YYYY format
+    'Buy',            // tr_type — Buy or Sell
+    '2500.00',        // rate — price per unit
+    '10',             // quantity — number of units
+    '20.00',          // brokerage
+    '3.60',           // gst
+    '2.50',           // stt
+    '0.05',           // sebi_tax
+    '1.50',           // exchange_charges
+    '1.25',           // stamp_duty
+    '0',              // other_charges
+    '0',              // ipft_charges
+    '28.90',          // total_charges
+  ].join(',');
+
+  const example2 = [
+    'RELIANCE', '15-03-2024', 'Sell', '2900.00', '5',
+    '20.00', '3.60', '2.90', '0.05', '1.50', '0', '0', '0', '28.05',
+  ].join(',');
+
+  const notes = [
+    '# CapGainsIQ Transaction Template',
+    '# Instructions:',
+    '#   1. date format: DD-MM-YYYY  (e.g. 01-09-2022 = 1st September 2022)',
+    '#   2. asset_name must exactly match the name you added in the Assets tab',
+    '#   3. tr_type must be exactly: Buy  or  Sell',
+    '#   4. Leave charges as 0 if unknown — only rate and quantity are required',
+    '#   5. Delete these comment lines before uploading',
+    '#   6. Save as .csv (comma separated)',
+    '#',
+  ].join('\n');
+
+  const csv = `${notes}\n${headers}\n${example}\n${example2}\n`;
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = 'capgainsiq_template.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // ── Component ──────────────────────────────────────────────────────────────
 export default function ZerodhaImporter({ existingAssets, existingTransactions, onImport, onClose }: Props) {
   const [parsed,  setParsed]  = useState<ParseResult | null>(null);
@@ -313,7 +480,11 @@ export default function ZerodhaImporter({ existingAssets, existingTransactions, 
       setTimeout(async () => {
         try {
           const text = ev.target?.result as string;
-          const all  = parseCSV(text);
+
+          // Strip comment lines (lines starting with #) before parsing
+          const stripped = text.split('\n').filter(l => !l.trim().startsWith('#')).join('\n');
+
+          const all  = parseCSV(stripped);
           if (all.length < 2) throw new Error('CSV is empty or has no data rows.');
 
           const headers = all[0];
@@ -323,7 +494,8 @@ export default function ZerodhaImporter({ existingAssets, existingTransactions, 
           let result: ParseResult;
           if (fmt === 'taxpnl')         result = parseTaxPnL(rows, headers);
           else if (fmt === 'tradebook') result = parseTradebook(rows, headers);
-          else throw new Error('Unrecognised format. Upload a Zerodha Tradebook or Tax P&L CSV.');
+          else if (isTemplateFormat(headers)) result = parseTemplate(rows, headers);
+          else throw new Error('Unrecognised format. Upload a Zerodha CSV or our CapGainsIQ template.');
 
           if (result.transactions.length === 0) throw new Error('No valid equity transactions found.');
           
@@ -431,9 +603,9 @@ export default function ZerodhaImporter({ existingAssets, existingTransactions, 
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
           <div>
-            <div style={{ fontWeight: 800, fontSize: 15, color: 'white' }}>Import from Zerodha</div>
+            <div style={{ fontWeight: 800, fontSize: 15, color: 'white' }}>Import Transactions</div>
             <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', marginTop: 2 }}>
-              Tradebook CSV or Tax P&L CSV — auto-detected
+              Zerodha CSV — or use our template for any broker
             </div>
           </div>
           <button onClick={onClose} style={{
@@ -459,6 +631,33 @@ export default function ZerodhaImporter({ existingAssets, existingTransactions, 
             </div>
           </div>
 
+          {/* Template download — for non-Zerodha users */}
+          <div style={{
+            background: 'var(--green-lt)', border: '1px solid #86efac',
+            borderRadius: 8, padding: '10px 14px', marginBottom: 14,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+          }}>
+            <div style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.5 }}>
+              <strong style={{ color: 'var(--green)', display: 'block', marginBottom: 2 }}>
+                Not on Zerodha? Use our template
+              </strong>
+              Works for Groww, Angel, ICICI, Upstox — any broker.
+              Download, fill in Excel, upload here.
+            </div>
+            <button
+              onClick={downloadTemplate}
+              style={{
+                flexShrink: 0, fontSize: 12, fontWeight: 700,
+                color: 'var(--green)', background: 'white',
+                border: '1px solid #86efac', borderRadius: 6,
+                padding: '6px 12px', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 5,
+              }}
+            >
+              ⬇ Template
+            </button>
+          </div>
+
           {/* Upload area */}
           {!parsed && (
             <div
@@ -482,10 +681,10 @@ export default function ZerodhaImporter({ existingAssets, existingTransactions, 
                   }} />
                   Parsing {'—'} please wait...
                 </span>
-              ) : 'Click to upload Zerodha CSV'}
+              ) : 'Click to upload CSV'}
               </div>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>
-                .csv files only
+                Zerodha CSV or CapGainsIQ template · .csv files only
               </div>
               <input ref={fileRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={handleFile} />
             </div>
