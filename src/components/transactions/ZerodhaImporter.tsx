@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import type { Asset, Transaction } from '../../types';
 import { genId } from '../../utils';
+import { bulkMatchMF, bulkMatchNSE } from '../../api/client';
 
 interface Props {
   existingAssets:       Asset[];
@@ -309,7 +310,7 @@ export default function ZerodhaImporter({ existingAssets, existingTransactions, 
     const reader = new FileReader();
     reader.onload = ev => {
       // Use setTimeout to yield to browser — prevents UI freeze on large CSVs
-      setTimeout(() => {
+      setTimeout(async () => {
         try {
           const text = ev.target?.result as string;
           const all  = parseCSV(text);
@@ -325,6 +326,70 @@ export default function ZerodhaImporter({ existingAssets, existingTransactions, 
           else throw new Error('Unrecognised format. Upload a Zerodha Tradebook or Tax P&L CSV.');
 
           if (result.transactions.length === 0) throw new Error('No valid equity transactions found.');
+          
+          // ── Auto-match MF tickers via backend ──────────────────────────────
+          const mfAssets = result.assets.filter(a => a.source === 'MF' && !a.ticker);
+          if (mfAssets.length > 0) {
+            try {
+              const names  = mfAssets.map(a => a.asset_name);
+              const matched = await bulkMatchMF(names, 0.55);
+              result.assets = result.assets.map(asset => {
+                if (asset.source !== 'MF' || asset.ticker) return asset;
+                const m = matched.results[asset.asset_name];
+                if (m?.matched && m.scheme_code) {
+                  return { ...asset, ticker: m.scheme_code };
+                }
+                return asset;
+              });
+              const autoFilled = result.assets.filter(
+                (a, i) => a.source === 'MF' && a.ticker && !mfAssets[i]?.ticker
+              ).length;
+              if (autoFilled > 0) {
+                result.warnings = [
+                  `Auto-filled AMFI codes for ${autoFilled} mutual fund(s). Please verify in the Assets tab.`,
+                  ...result.warnings,
+                ];
+              }
+            } catch {
+              // silent — user can fill manually
+            }
+          }
+
+          // ── Auto-fix stock tickers (full legal names → NSE symbols) ────────
+          // Zerodha stores "ADANI ENTERPRISES LIMITED" but Yahoo needs "ADANIENT.NS"
+          const badStockAssets = result.assets.filter(a =>
+            a.source === 'YF' && a.ticker && (
+              a.ticker.includes(' ') ||           // has spaces — definitely wrong
+              a.ticker.endsWith('.NS') === false  // doesn't end in .NS or .BO
+            )
+          );
+          if (badStockAssets.length > 0) {
+            try {
+              const names   = badStockAssets.map(a => a.asset_name);
+              const matched = await bulkMatchNSE(names, 0.50);
+              result.assets = result.assets.map(asset => {
+                if (asset.source !== 'YF') return asset;
+                const m = matched.results[asset.asset_name];
+                if (m?.matched && m.nse_ticker) {
+                  return { ...asset, ticker: m.nse_ticker };
+                }
+                return asset;
+              });
+              const fixedCount = badStockAssets.filter(a => {
+                const m = matched.results[a.asset_name];
+                return m?.matched;
+              }).length;
+              if (fixedCount > 0) {
+                result.warnings = [
+                  `Auto-fixed NSE tickers for ${fixedCount} stock(s). Please verify in the Assets tab.`,
+                  ...result.warnings,
+                ];
+              }
+            } catch {
+              // silent — user can fix manually
+            }
+          }
+
           setParsed(result);
         } catch (err: any) {
           setError((err as Error).message);

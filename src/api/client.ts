@@ -57,3 +57,92 @@ export async function healthCheck(): Promise<{ status: string; version: string }
   const res = await fetch(`${BASE}/api/health`);
   return handleResponse(res);
 }
+
+// ─── MF Search ────────────────────────────────────────────────────────────────
+
+export interface MFMatch {
+  scheme_code: string;
+  scheme_name: string;
+  score:       number;
+}
+
+export interface MFSearchResponse {
+  query:   string;
+  results: MFMatch[];
+}
+
+export interface MFAutoMatchResponse {
+  matched:      boolean;
+  scheme_code?: string;
+  scheme_name?: string;
+  score?:       number;
+}
+
+export interface MFBulkMatchResponse {
+  results: Record<string, MFAutoMatchResponse>;
+}
+
+/** Search funds by name — used for typeahead in AssetsManager */
+export async function searchMFFunds(q: string, topN = 5): Promise<MFSearchResponse> {
+  const res = await fetch(`${BASE}/api/mf/search?q=${encodeURIComponent(q)}&top_n=${topN}`);
+  return handleResponse(res);
+}
+
+/** Auto-match a single fund name — used during import */
+export async function autoMatchMF(name: string, minScore = 0.55): Promise<MFAutoMatchResponse> {
+  const res = await fetch(
+    `${BASE}/api/mf/match?name=${encodeURIComponent(name)}&min_score=${minScore}`
+  );
+  return handleResponse(res);
+}
+
+/** Bulk auto-match multiple fund names in one request — used during Zerodha import */
+export async function bulkMatchMF(names: string[], minScore = 0.55): Promise<MFBulkMatchResponse> {
+  const res = await fetch(`${BASE}/api/mf/match-bulk`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ names, min_score: minScore }),
+  });
+  return handleResponse(res);
+}
+
+/** Validate a scheme code the user typed manually */
+export async function getMFByCode(schemeCode: string): Promise<MFMatch> {
+  const res = await fetch(`${BASE}/api/mf/code/${encodeURIComponent(schemeCode)}`);
+  return handleResponse(res);
+}
+
+// ─── NSE Stock Search ─────────────────────────────────────────────────────────
+
+export interface NSEMatch {
+  symbol:       string;
+  company_name: string;
+  nse_ticker:   string;
+  bse_ticker:   string;
+  score:        number;
+}
+
+export interface NSESearchResponse {
+  query:   string;
+  results: NSEMatch[];
+}
+
+export interface NSEBulkMatchResponse {
+  results: Record<string, { matched: boolean } & Partial<NSEMatch>>;
+}
+
+/** Search NSE stocks by company name or symbol — used for typeahead */
+export async function searchNSEStocks(q: string, topN = 5): Promise<NSESearchResponse> {
+  const res = await fetch(`${BASE}/api/nse/search?q=${encodeURIComponent(q)}&top_n=${topN}`);
+  return handleResponse(res);
+}
+
+/** Bulk match company names to NSE tickers — used during Zerodha import */
+export async function bulkMatchNSE(names: string[], minScore = 0.50): Promise<NSEBulkMatchResponse> {
+  const res = await fetch(`${BASE}/api/nse/match-bulk`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ names, min_score: minScore }),
+  });
+  return handleResponse(res);
+}
