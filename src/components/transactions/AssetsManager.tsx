@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import type { Asset, AssetClass, AssetSource } from '../../types';
 import { genId } from '../../utils';
+import MFSearchInput from './MFSearchInput';
+import NSESearchInput from './NSESearchInput';
 
 interface Props {
   assets:   Asset[];
@@ -290,20 +292,28 @@ export default function AssetsManager({ assets, onChange }: Props) {
               <span>
                 {form.source === 'MF' ? 'AMFI Scheme Code *' : 'Yahoo Finance Ticker *'}
               </span>
-              <button
-                type="button"
-                onClick={() => setShowHelp(form.source)}
-                style={{ fontSize: 10, color: 'var(--indigo-mid)', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-              >
-                How to find? →
-              </button>
+              {form.source === 'YF' && (
+                <button
+                  type="button"
+                  onClick={() => setShowHelp(form.source)}
+                  style={{ fontSize: 10, color: 'var(--indigo-mid)', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                >
+                  How to find? →
+                </button>
+              )}
             </label>
-            <input
-              className="input mono"
-              placeholder={form.source === 'MF' ? 'e.g. 120505' : 'e.g. RELIANCE.NS'}
-              value={form.ticker}
-              onChange={e => setForm(f => ({ ...f, ticker: e.target.value.trim() }))}
-            />
+
+            {form.source === 'MF' ? (
+              <MFSearchInput
+                value={form.ticker}
+                onChange={(code) => setForm(f => ({ ...f, ticker: code }))}
+              />
+            ) : (
+              <NSESearchInput
+                value={form.ticker}
+                onChange={(ticker) => setForm(f => ({ ...f, ticker }))}
+              />
+            )}
           </div>
 
           <div className="form-group">
