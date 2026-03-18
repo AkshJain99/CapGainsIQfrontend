@@ -25,7 +25,7 @@ function generateSuggestions(result: CapGainsResult): Suggestion[] {
   if (exemptionLeft > 5000) {
     assetRows.filter(r => r.u_ltcg > 2000).forEach(row => {
       const gain = Math.min(row.u_ltcg, exemptionLeft);
-      const saved = gain * rule.ltcg_rate;
+      const saved = gain * (rule.ltcg_rate / 100);
       if (saved > 500) suggestions.push({
         type: 'harvest_gain', asset: row.asset_name,
         message: `${row.asset_name} has ${fmtINR(row.u_ltcg)} unrealised LTCG. Your remaining exemption is ${fmtINR(exemptionLeft)}. Sell and immediately rebuy to reset your cost basis — this gain becomes completely tax-free.`,
@@ -42,7 +42,7 @@ function generateSuggestions(result: CapGainsResult): Suggestion[] {
     assetRows.filter(r => (r.u_ltcg + r.u_stcg) < -2000).forEach(row => {
       const loss = Math.abs(row.u_ltcg + row.u_stcg);
       const offset = Math.min(loss, totalRealised);
-      const saved = offset * rule.stcg_rate;
+      const saved = offset * (rule.stcg_rate / 100);
       if (saved > 500) suggestions.push({
         type: 'harvest_loss', asset: row.asset_name,
         message: `${row.asset_name} is at a loss of ${fmtINR(loss)}. Booking this loss offsets your ${fmtINR(totalRealised)} realised gains and reduces your tax bill directly.`,
@@ -55,12 +55,12 @@ function generateSuggestions(result: CapGainsResult): Suggestion[] {
 
   // 3. STCG → LTCG by holding longer
   assetRows.filter(r => r.u_stcg > 5000).forEach(row => {
-    const stcgTax = row.u_stcg * rule.stcg_rate;
-    const ltcgTax = Math.max(0, row.u_stcg - rule.ltcg_exemption) * rule.ltcg_rate;
+    const stcgTax = row.u_stcg * (rule.stcg_rate / 100);
+    const ltcgTax = Math.max(0, row.u_stcg - rule.ltcg_exemption) * (rule.ltcg_rate / 100);
     const saved = stcgTax - ltcgTax;
     if (saved > 1000) suggestions.push({
       type: 'stcg_to_ltcg', asset: row.asset_name,
-      message: `${row.asset_name} has ${fmtINR(row.u_stcg)} unrealised STCG at ${rule.stcg_rate * 100}%. Holding past the 1-year mark converts it to LTCG at ${rule.ltcg_rate * 100}% — saving you ${fmtINR(saved)}.`,
+      message: `${row.asset_name} has ${fmtINR(row.u_stcg)} unrealised STCG at ${rule.stcg_rate}%. Holding past the 1-year mark converts it to LTCG at ${rule.ltcg_rate}% — saving you ${fmtINR(saved)}.`,
       saving: saved,
       action: `Hold ${row.asset_name} until 1-year mark → STCG becomes LTCG → save ${fmtINR(saved)}`,
       urgency: saved > 5000 ? 'high' : 'low',
@@ -89,7 +89,7 @@ export default function TaxHarvesting({ result }: Props) {
         <div>
           <div className="section-title" style={{ marginBottom: 3 }}>💡 Tax Saving Opportunities</div>
           <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-            FY {rule.fy} · LTCG {rule.ltcg_rate * 100}% · STCG {rule.stcg_rate * 100}% · Exemption {fmtINR(rule.ltcg_exemption)}
+            FY {rule.fy} · LTCG {rule.ltcg_rate}% · STCG {rule.stcg_rate}% · Exemption {fmtINR(rule.ltcg_exemption)}
           </div>
         </div>
         {totalSaving > 0 && (
